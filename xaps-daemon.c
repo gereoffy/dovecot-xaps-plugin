@@ -39,6 +39,7 @@
 
 #include "xaps-daemon.h"
 
+#include <stdio.h>
 
 /**
  * Quote and escape a string. Not sure if this deals correctly with
@@ -50,7 +51,6 @@ static void xaps_str_append_quoted(string_t *dest, const char *str) {
     str_append(dest, str_escape(str));
     str_append_c(dest, '"');
 }
-
 
 
 int xaps_notify(const char *socket_path, const char *username, struct mail_user *mailuser , struct mailbox *mailbox, struct push_notification_txn_msg *msg) {
@@ -81,13 +81,18 @@ int xaps_notify(const char *socket_path, const char *username, struct mail_user 
     }
 
     i_error("notify='%.*s'",(int)(str_len(req)), str_data(req));
-
 //    str_append(req, "\r\n");
 //    push_notification_driver_debug(XAPS_LOG_LABEL, mailuser, "about to send: %p", req);
+
+    // call external program to send the push trigger:
+    if(username){
+        char tmp[1024];
+        sprintf(tmp,"/etc/xapsd/sendpush '%s'",username);
+        system(tmp);
+    }
+
     return 0; //send_to_daemon(socket_path, req, NULL);
 }
-
-#include <stdio.h>
 
 int xaps_register(const char *socket_path, struct xaps_attr *xaps_attr) {
 
