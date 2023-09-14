@@ -40,62 +40,6 @@
 #include "xaps-daemon.h"
 
 
-/*
- * Send the request to our daemon over a unix domain socket. The
- * protocol is very simple line based. We use an alarm to make sure
- * this request does not hang.
- */
-int send_to_daemon(const char *socket_path, const string_t *payload, struct xaps_attr *xaps_attr) {
-    int ret = -1;
-
-    int fd = net_connect_unix(socket_path);
-    if (fd == -1) {
-        i_error("net_connect_unix(%s) failed: %m", socket_path);
-        return -1;
-    }
-
-    net_set_nonblock(fd, FALSE);
-    alarm(1);                     /* TODO: Should be a constant. What is a good duration? */
-#ifdef OSTREAM_UNIX_H
-    struct ostream *ostream = o_stream_create_unix(fd, (size_t)-1);
-    o_stream_cork(ostream);
-    o_stream_nsend(ostream, str_data(payload), str_len(payload));
-    o_stream_uncork(ostream);
-    {
-        if (o_stream_flush(ostream) < 1) {
-#else
-    {
-        if (net_transmit(fd, str_data(payload), str_len(payload)) < 0) {
-#endif
-            i_error("write(%s) failed: %m", socket_path);
-            ret = -1;
-        } else {
-            char res[1024];
-            ret = net_receive(fd, res, sizeof(res) - 1);
-            if (ret < 0) {
-                i_error("read(%s) failed: %m", socket_path);
-            } else {
-                res[ret] = '\0';
-                if (strncmp(res, "OK ", 3) == 0) {
-                    if (xaps_attr) {
-                        char *tmp;
-                        /* Remove whitespace the end. We expect \r\n. TODO: Looks shady. Is there a dovecot library function for this? */
-                        str_append(xaps_attr->aps_topic, strtok_r(&res[3], "\r\n", &tmp));
-                    }
-                    ret = 0;
-                }
-            }
-        }
-    }
-#ifdef OSTREAM_UNIX_H
-    o_stream_destroy(&ostream);
-#endif
-    alarm(0);
-
-    net_disconnect(fd);
-    return ret;
-}
-
 /**
  * Quote and escape a string. Not sure if this deals correctly with
  * unicode in mailbox names.
@@ -107,12 +51,7 @@ static void xaps_str_append_quoted(string_t *dest, const char *str) {
     str_append_c(dest, '"');
 }
 
-/**
- * Notify the backend daemon of an incoming mail. Right now we tell
- * the daemon the username and the mailbox in which a new email was
- * posted. The daemon can then lookup the user and see if any of the
- * devices want to receive a notification for that mailbox.
- */
+
 
 int xaps_notify(const char *socket_path, const char *username, struct mail_user *mailuser , struct mailbox *mailbox, struct push_notification_txn_msg *msg) {
     struct push_notification_txn_event *const *event;
@@ -140,21 +79,17 @@ int xaps_notify(const char *socket_path, const char *username, struct mail_user 
         str_append(req, ")");
 
     }
-    str_append(req, "\r\n");
 
+    i_error("notify='%.*s'",(int)(str_len(req)), str_data(req));
 
-    push_notification_driver_debug(XAPS_LOG_LABEL, mailuser, "about to send: %p", req);
-    return send_to_daemon(socket_path, req, NULL);
+//    str_append(req, "\r\n");
+//    push_notification_driver_debug(XAPS_LOG_LABEL, mailuser, "about to send: %p", req);
+    return 0; //send_to_daemon(socket_path, req, NULL);
 }
 
-/**
- * Send a registration request to the daemon, which will do all the
- * hard work.
- */
+#include <stdio.h>
+
 int xaps_register(const char *socket_path, struct xaps_attr *xaps_attr) {
-    /*
-     * Construct our request.
-     */
 
     string_t *req = t_str_new(1024);
     str_append(req, "REGISTER");
@@ -186,7 +121,24 @@ int xaps_register(const char *socket_path, struct xaps_attr *xaps_attr) {
         }
         str_append(req, ")");
     }
+
+    i_error("register='%.*s'",(int)(str_len(req)), str_data(req));
+
     str_append(req, "\r\n");
 
-    return send_to_daemon(socket_path, req, xaps_attr);
+//FIXME, read/copy UID from cert.pem:
+//subject=UID = com.apple.mail.XServer.a5c53cf6-9cda-4e40-93a2-fc0e5fadd640, CN = APSP:a5c53cf6-9cda-4e40-93a2-fc0e5fadd640, C = HU
+//issuer=CN = Apple Application Integration 2 Certification Authority, OU = Apple Certification Authority, O = Apple Inc., C = US
+    str_append(xaps_attr->aps_topic, "com.apple.mail.XServer.a5c53cf6-9cda-4e40-93a2-fc0e5fadd640");
+
+    // append registration data (username, account id & token) to file (path/name set in xaps.conf file 'xaps_socket' parameter - yes it's ugly :))
+    int fd = open(socket_path, O_RDWR | O_APPEND);
+    if(fd>0){
+        char tmp[1024];
+        int len=sprintf(tmp,"%s:%s:%s:%s\n",xaps_attr->dovecot_username,xaps_attr->aps_account_id,xaps_attr->aps_device_token,xaps_attr->aps_subtopic);
+        write(fd,tmp,len);
+        close(fd);
+    }
+
+    return 0;
 }
