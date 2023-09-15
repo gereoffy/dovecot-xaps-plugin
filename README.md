@@ -1,3 +1,22 @@
+Changes by A'rpi:
+=================
+
+- removed the xaps-daemon requirement, removed socket communication code
+- register function logs username/id/token to a file
+- notify function calls external program 'sendpush'
+- my sendpush program: reads id/token db from file and trigger the push
+
+TODO:
+-----
+- link sendpush code into the plugin somehow to avoid external run
+- read UID from cert file, instead of hardcoding in the source
+- support .p12 cert format instead of pem/key
+- some code cleanup :)
+- better logging
+
+
+original README:
+
 iOS Push Email for Dovecot
 ==========================
 
